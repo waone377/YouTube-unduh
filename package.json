@@ -1,0 +1,19 @@
+{
+  "name": "youtube unduh",
+  "version": "1.0.0",
+  "description": "alat pengunduh vidio youtube..",
+  "main": "src/app.js",
+  "scripts": {
+    "test": "node src/app.js"
+  },
+  "keywords": [
+    "youtube",
+    "unduh"
+  ],
+  "author": "waone",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "prompt-sync": "^4.2.0"
+  }
+}
