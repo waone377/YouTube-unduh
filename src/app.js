@@ -3,10 +3,12 @@ import promptSync from "prompt-sync";
 const prompt = promptSync();
 
 function downloadVideo(url, output) {
-  const nama = `data/${output}.mp4`;
+  const nama = `save/${output}.mp4`;
+  console.clear();
+  console.log("memproses permintaan..");
   const proses = spawn("yt-dlp", ["-f", "best", "-o", nama, link]);
-
   proses.stdout.on("data", (data) => {
+    console.clear();
     process.stdout.write(data.toString()); // tampilkan progress di terminal
   });
 
@@ -15,16 +17,17 @@ function downloadVideo(url, output) {
   });
 
   proses.on("close", (code) => {
+    console.clear();
     console.log(`\nProses selesai dengan kode: ${code}`);
+    console.log("di simpan di: ", nama);
   });
   proses.on("error", (err) => {
     console.error(`Gagal menjalankan proses: ${err.message}`);
   });
 }
-
-// Contoh penggunaan
-const link = prompt("masukkan link video YouTube: ");
-const nama = prompt("masukkan nama output tanpa ekstensi: ");
+console.log("masukkan link url video YouTube yang akan diunduh dibawah..\n");
+const link = prompt("masukkan link?: ");
+console.log("masukkan nama vidio hasil download di bawah tanpa menyertakan ekstensi format..\n");
+const nama = prompt("file name?: ");
 
 downloadVideo(link, nama);
-
