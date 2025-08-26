@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pengunduh Video YouTube Interaktif</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>Pengunduh Video YouTube</h1>
+        <p>Tempel URL video untuk melihat opsi unduhan.</p>
+
+        <form id="url-form">
+            <input type="text" id="video-url" placeholder="Contoh: https://www.youtube.com/watch?v=..." required>
+            <button type="submit">Dapatkan Info Video</button>
+        </form>
+
+        <div id="status-area"></div>
+        <div id="video-info-area" class="hidden"></div>
+    </div>
+
+    <script>
+        const urlForm = document.getElementById('url-form');
+        const urlInput = document.getElementById('video-url');
+        const statusArea = document.getElementById('status-area');
+        const videoInfoArea = document.getElementById('video-info-area');
+        let currentVideoUrl = '';
+
+        function showStatus(message, isError = false) {
+            statusArea.innerHTML = `<div class="status ${isError ? 'error' : ''}">${message}</div>`;
+        }
+
+        function showLoading(message) {
+            statusArea.innerHTML = `
+                <div class="loading">
+                    <p>${message}</p>
+                    <div class="spinner"></div>
+                </div>`;
+        }
+
+        function clearAreas() {
+            statusArea.innerHTML = '';
+            videoInfoArea.innerHTML = '';
+            videoInfoArea.classList.add('hidden');
+        }
+
+        urlForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            clearAreas();
+            showLoading('Mendapatkan informasi video...');
+            
+            currentVideoUrl = urlInput.value;
+
+            try {
+                const response = await fetch('/info', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: currentVideoUrl })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Gagal mengambil data dari server.');
+                }
+
+                const data = await response.json();
+                displayVideoInfo(data);
+                statusArea.innerHTML = '';
+
+            } catch (error) {
+                showStatus(`Terjadi kesalahan: ${error.message}`, true);
+                videoInfoArea.classList.add('hidden');
+            }
+        });
+
+        function displayVideoInfo(data) {
+            videoInfoArea.classList.remove('hidden');
+            let formatsHtml = '<h4>Pilih Format untuk Diunduh:</h4><ul class="format-list">';
+            
+            if (data.formats && data.formats.length > 0) {
+                data.formats.forEach(f => {
+                    const filesizeMB = f.filesize ? (f.filesize / 1024 / 1024).toFixed(2) + ' MB' : 'N/A';
+                    formatsHtml += `
+                        <li>
+                            <span>${f.resolution} (${f.ext}) - ${filesizeMB}</span>
+                            <button class="download-btn" data-format-id="${f.id}">Unduh</button>
+                        </li>`;
+                });
+            } else {
+                formatsHtml += '<li>Tidak ada format resolusi standar (misal: 720p, 1080p) yang ditemukan.</li>';
+            }
+            formatsHtml += '</ul>';
+
+            videoInfoArea.innerHTML = `
+                <div class="video-details">
+                    <img src="${data.thumbnail}" alt="Thumbnail" class="thumbnail">
+                    <div class="video-text">
+                        <h3>${data.title}</h3>
+                        <p>Durasi: ${data.duration}</p>
+                    </div>
+                </div>
+                ${formatsHtml}
+            `;
+
+            document.querySelectorAll('.download-btn').forEach(button => {
+                button.addEventListener('click', startDownloadProcess);
+            });
+        }
+
+        async function startDownloadProcess(e) {
+            const formatId = e.target.dataset.formatId;
+            showLoading('Memeriksa file yang sudah ada...');
+            videoInfoArea.classList.add('hidden');
+
+            try {
+                const response = await fetch('/download', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        url: currentVideoUrl, 
+                        format_id: formatId
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Gagal memulai unduhan.');
+                }
+
+                const data = await response.json();
+
+                if (data.status === 'exists') {
+                    showOverwriteConfirmation(data.filename, formatId);
+                } else if (data.status === 'started') {
+                    listenToProgress(data.task_id);
+                }
+
+            } catch (error) {
+                showStatus(`Gagal memulai unduhan: ${error.message}`, true);
+            }
+        }
+
+        function showOverwriteConfirmation(filename, formatId) {
+            statusArea.innerHTML = `
+                <div class="status">
+                    <h4>File Sudah Ada</h4>
+                    <p>Video ini sepertinya sudah pernah diunduh. Apa yang ingin Anda lakukan?</p>
+                    <p><strong>${filename}</strong></p>
+                    <div class="confirmation-buttons">
+                        <a href="/get-file/${filename}" class="download-link" download>Gunakan File Ini</a>
+                        <button id="force-download-btn" class="download-btn-overwrite">Timpa File</button>
+                        <button id="rename-download-btn" class="download-btn">Unduh (File Baru)</button>
+                    </div>
+                </div>
+            `;
+
+            document.getElementById('force-download-btn').addEventListener('click', () => {
+                forceDownloadProcess(formatId);
+            });
+
+            document.getElementById('rename-download-btn').addEventListener('click', () => {
+                renameDownloadProcess(formatId);
+            });
+        }
+
+        async function forceDownloadProcess(formatId) {
+            showLoading('Memulai proses penimpaan file di server...');
+
+            try {
+                const response = await fetch('/download', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        url: currentVideoUrl, 
+                        format_id: formatId,
+                        force: true
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Gagal memulai unduhan.');
+                }
+
+                const data = await response.json();
+                if (data.task_id) {
+                    listenToProgress(data.task_id);
+                } else {
+                    throw new Error('Server tidak mengembalikan ID tugas.');
+                }
+
+            } catch (error) {
+                showStatus(`Gagal memulai unduhan paksa: ${error.message}`, true);
+            }
+        }
+
+        async function renameDownloadProcess(formatId) {
+            showLoading('Memulai unduhan sebagai file baru...');
+
+            try {
+                const response = await fetch('/download', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        url: currentVideoUrl, 
+                        format_id: formatId,
+                        rename: true
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Gagal memulai unduhan.');
+                }
+
+                const data = await response.json();
+                if (data.task_id) {
+                    listenToProgress(data.task_id);
+                } else {
+                    throw new Error('Server tidak mengembalikan ID tugas.');
+                }
+
+            } catch (error) {
+                showStatus(`Gagal memulai unduhan baru: ${error.message}`, true);
+            }
+        }
+
+        function listenToProgress(taskId) {
+            statusArea.innerHTML = `
+                <div class="progress-container">
+                    <p id="progress-status">Menunggu status dari server...</p>
+                    <div class="progress-bar">
+                        <div id="progress-bar-inner" style="width: 0%;"></div>
+                    </div>
+                    <p id="progress-details"></p>
+                </div>`;
+
+            const eventSource = new EventSource(`/progress/${taskId}`);
+
+            eventSource.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                const statusBar = document.getElementById('progress-bar-inner');
+                const statusText = document.getElementById('progress-status');
+                const progressDetails = document.getElementById('progress-details');
+
+                if (data.status === 'mengunduh') {
+                    statusBar.style.width = `${data.percent}%`;
+                    statusBar.innerText = `${data.percent.toFixed(1)}%`;
+                    statusText.innerText = 'Sedang Mengunduh...';
+                    progressDetails.innerText = `Kecepatan: ${data.speed} | ETA: ${data.eta}s`;
+                } else if (data.status === 'selesai') {
+                    statusText.innerText = 'Unduhan Selesai!';
+                    statusBar.style.width = '100%';
+                    statusBar.innerText = '100%';
+                    progressDetails.innerHTML = `
+                        <p>File Anda siap diunduh.</p>
+                        <a href="/get-file/${data.filename}" class="download-link" download>Klik di sini untuk Mengunduh File</a>
+                        <p class="note">Link akan valid selama 1 jam.</p>
+                    `;
+                    eventSource.close();
+                } else if (data.status === 'gagal') {
+                    showStatus(`Proses unduhan gagal: ${data.message || 'Terjadi kesalahan di server.'}`, true);
+                    eventSource.close();
+                } else {
+                    statusText.innerText = `Status: ${data.status}...`;
+                }
+            };
+
+            eventSource.onerror = () => {
+                showStatus('Koneksi ke server terputus. Gagal mendapatkan status unduhan.', true);
+                eventSource.close();
+            };
+        }
+    </script>
+</body>
+</html>
